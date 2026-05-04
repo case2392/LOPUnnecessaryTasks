@@ -15,6 +15,7 @@
   ];
 
   const CLOSE_TASK_NOTE = "Task Completed. Ready to Close Task.";
+  const REVIEW_SEND_TASK = "Review & send first call follow-up";
 
   let isRunning = false;
   let abortRequested = false;
@@ -135,19 +136,53 @@
     return true;
   }
 
-  async function completeTask({ taskId, name }) {
-    setStatus(`Completing: ${name}`);
-
-    const tr = await waitFor(() => findRowByTaskId(taskId), { timeout: 5000 });
-    if (!tr) {
-      console.warn("[LOP] Row not found for task", { taskId, name });
-      return false;
+  function findSendSmsReviewButton() {
+    const sidebar = document.querySelector("c-lo-desktop-v2-sidebar");
+    if (!sidebar) return null;
+    for (const b of sidebar.querySelectorAll("button")) {
+      if (b.textContent.trim() === "Send SMS and review email") return b;
     }
+    return null;
+  }
 
-    tr.click();
-    const link = tr.querySelector(".slds-link");
-    if (link) link.click();
+  function findSendSmsToggle() {
+    const sidebar = document.querySelector("c-lo-desktop-v2-sidebar");
+    if (!sidebar) return null;
+    for (const lbl of sidebar.querySelectorAll("label")) {
+      if ((lbl.textContent || "").includes("Send SMS as well")) {
+        const input = lbl.querySelector('input[type="checkbox"]');
+        if (input) return input;
+      }
+    }
+    const faux = sidebar.querySelector(".slds-checkbox_faux_container");
+    if (faux) {
+      const lbl = faux.closest("label");
+      if (lbl) return lbl.querySelector('input[type="checkbox"]');
+    }
+    return null;
+  }
 
+  function findEmailModalCloseButton() {
+    return document.querySelector(
+      'button.closeIcon[title="Cancel and close"], button.slds-modal__close[title="Cancel and close"]'
+    );
+  }
+
+  async function waitForRowGone(taskId) {
+    const cleared = await waitFor(
+      () => {
+        const row = findRowByTaskId(taskId);
+        if (!row) return true;
+        if (row.getAttribute("data-fading-out") === "true") return true;
+        return false;
+      },
+      { timeout: 15000 }
+    );
+    await sleep(500);
+    return Boolean(cleared);
+  }
+
+  async function completeStandardTask(taskId, name) {
     const completeBtn = await waitFor(() => findCompleteButtonForTask(name), {
       timeout: 12000,
     });
@@ -167,18 +202,62 @@
       return false;
     }
 
-    const cleared = await waitFor(
-      () => {
-        const row = findRowByTaskId(taskId);
-        if (!row) return true;
-        if (row.getAttribute("data-fading-out") === "true") return true;
-        return false;
-      },
-      { timeout: 15000 }
-    );
+    return await waitForRowGone(taskId);
+  }
 
-    await sleep(500);
-    return Boolean(cleared);
+  async function completeReviewSendTask(taskId, name) {
+    const sendBtn = await waitFor(() => findSendSmsReviewButton(), {
+      timeout: 12000,
+    });
+    if (!sendBtn) {
+      console.warn("[LOP] Send SMS and review email button not found", {
+        taskId,
+        name,
+      });
+      return false;
+    }
+
+    const toggle = findSendSmsToggle();
+    if (toggle && toggle.checked) {
+      toggle.click();
+      await sleep(250);
+    }
+
+    sendBtn.click();
+
+    const closeBtn = await waitFor(() => findEmailModalCloseButton(), {
+      timeout: 10000,
+    });
+    if (closeBtn) {
+      closeBtn.click();
+      await waitFor(() => !findEmailModalCloseButton(), { timeout: 5000 });
+    } else {
+      console.warn("[LOP] Email review modal close button not found; continuing", {
+        taskId,
+        name,
+      });
+    }
+
+    return await waitForRowGone(taskId);
+  }
+
+  async function completeTask({ taskId, name }) {
+    setStatus(`Completing: ${name}`);
+
+    const tr = await waitFor(() => findRowByTaskId(taskId), { timeout: 5000 });
+    if (!tr) {
+      console.warn("[LOP] Row not found for task", { taskId, name });
+      return false;
+    }
+
+    tr.click();
+    const link = tr.querySelector(".slds-link");
+    if (link) link.click();
+
+    if (name.trim() === REVIEW_SEND_TASK) {
+      return await completeReviewSendTask(taskId, name);
+    }
+    return await completeStandardTask(taskId, name);
   }
 
   async function start() {

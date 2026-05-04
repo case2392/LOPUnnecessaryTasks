@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "LOP Unnecessary Tasks Remover",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Adds a button to the LOP home page that bulk-completes unnecessary Salesforce tasks.",
   "content_scripts": [
     {
