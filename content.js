@@ -2,6 +2,7 @@
   const BUTTON_ID = "lop-remove-unnecessary-tasks-btn";
   const STATUS_ID = "lop-remove-status";
   const WRAPPER_ID = "lop-remove-wrapper";
+  const MODAL_ID = "lop-remove-modal";
 
   const EXACT_MATCHES = new Set([
     "Follow up today - Beth replied via SMS",
@@ -32,6 +33,7 @@
   }
 
   function getTaskName(tr) {
+    if (!tr) return null;
     const cell = tr.querySelector('td[data-column="next-task"]');
     if (!cell) return null;
     const named = cell.querySelector(".neglected-task-name");
@@ -40,9 +42,19 @@
     return fallback ? fallback.textContent : null;
   }
 
-  function getMatchingRows() {
-    const rows = Array.from(document.querySelectorAll("tr[data-task-id]"));
-    return rows.filter((tr) => isUnnecessary(getTaskName(tr)));
+  function findRowByTaskId(taskId) {
+    return document.querySelector(`tr[data-task-id="${taskId}"]`);
+  }
+
+  function getMatchingTasks() {
+    const out = [];
+    for (const tr of document.querySelectorAll("tr[data-task-id]")) {
+      const name = getTaskName(tr);
+      if (!isUnnecessary(name)) continue;
+      const taskId = tr.getAttribute("data-task-id");
+      if (taskId) out.push({ taskId, name: name.trim() });
+    }
+    return out;
   }
 
   function findCompleteButtonForTask(expectedName) {
@@ -63,24 +75,27 @@
     return null;
   }
 
-  function openRow(tr) {
+  async function completeTask({ taskId, name }) {
+    setStatus(`Completing: ${name}`);
+
+    const tr = await waitFor(() => findRowByTaskId(taskId), { timeout: 5000 });
+    if (!tr) {
+      console.warn("[LOP] Row not found for task", { taskId, name });
+      return false;
+    }
+
     tr.click();
     const link = tr.querySelector(".slds-link");
     if (link) link.click();
-  }
-
-  async function completeOne(tr) {
-    const name = (getTaskName(tr) || "").trim();
-    const taskId = tr.getAttribute("data-task-id");
-    setStatus(`Completing: ${name}`);
-
-    openRow(tr);
 
     const completeBtn = await waitFor(() => findCompleteButtonForTask(name), {
-      timeout: 10000,
+      timeout: 12000,
     });
     if (!completeBtn) {
-      console.warn("[LOP] Sidebar did not show expected task; skipping", { name, taskId });
+      console.warn("[LOP] Sidebar did not show expected task; skipping", {
+        taskId,
+        name,
+      });
       return false;
     }
 
@@ -88,29 +103,27 @@
 
     const cleared = await waitFor(
       () => {
-        const stillThere = document.querySelector(`tr[data-task-id="${taskId}"]`);
-        if (!stillThere) return true;
-        if (stillThere.getAttribute("data-fading-out") === "true") return true;
+        const row = findRowByTaskId(taskId);
+        if (!row) return true;
+        if (row.getAttribute("data-fading-out") === "true") return true;
         return false;
       },
-      { timeout: 12000 }
+      { timeout: 15000 }
     );
 
-    await sleep(400);
+    await sleep(500);
     return Boolean(cleared);
   }
 
-  async function run() {
-    const rows = getMatchingRows();
-    if (rows.length === 0) {
+  async function start() {
+    const tasks = getMatchingTasks();
+    if (tasks.length === 0) {
       setStatus("No unnecessary tasks found.");
       return;
     }
 
-    const preview = rows
-      .map((r) => `• ${(getTaskName(r) || "").trim()}`)
-      .join("\n");
-    if (!confirm(`Mark ${rows.length} task(s) complete?\n\n${preview}`)) {
+    const ok = await openConfirmModal(tasks);
+    if (!ok) {
       setStatus("Cancelled.");
       return;
     }
@@ -120,17 +133,13 @@
 
     let done = 0;
     let failed = 0;
-    for (const tr of rows) {
-      if (!document.contains(tr)) {
-        failed++;
-        continue;
-      }
+    for (const task of tasks) {
       try {
-        const ok = await completeOne(tr);
-        if (ok) done++;
+        const success = await completeTask(task);
+        if (success) done++;
         else failed++;
       } catch (e) {
-        console.error("[LOP] error completing row", e);
+        console.error("[LOP] error completing task", task, e);
         failed++;
       }
     }
@@ -144,17 +153,86 @@
     if (el) el.textContent = text;
   }
 
+  function openConfirmModal(tasks) {
+    return new Promise((resolve) => {
+      const existing = document.getElementById(MODAL_ID);
+      if (existing) existing.remove();
+
+      const overlay = document.createElement("div");
+      overlay.id = MODAL_ID;
+      overlay.className = "lop-modal-overlay";
+
+      const dialog = document.createElement("div");
+      dialog.className = "lop-modal";
+
+      const heading = document.createElement("div");
+      heading.className = "lop-modal-heading";
+      heading.textContent = `Mark ${tasks.length} task(s) complete?`;
+
+      const list = document.createElement("ul");
+      list.className = "lop-modal-list";
+      for (const t of tasks) {
+        const li = document.createElement("li");
+        li.textContent = t.name;
+        list.appendChild(li);
+      }
+
+      const actions = document.createElement("div");
+      actions.className = "lop-modal-actions";
+
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.className = "lop-modal-btn lop-modal-cancel";
+      cancel.textContent = "Cancel";
+
+      const ok = document.createElement("button");
+      ok.type = "button";
+      ok.className = "lop-modal-btn lop-modal-ok";
+      ok.textContent = "Complete tasks";
+
+      const cleanup = (result) => {
+        overlay.remove();
+        resolve(result);
+      };
+
+      cancel.addEventListener("click", (e) => {
+        e.stopPropagation();
+        cleanup(false);
+      });
+      ok.addEventListener("click", (e) => {
+        e.stopPropagation();
+        cleanup(true);
+      });
+      overlay.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (e.target === overlay) cleanup(false);
+      });
+
+      actions.appendChild(cancel);
+      actions.appendChild(ok);
+      dialog.appendChild(heading);
+      dialog.appendChild(list);
+      dialog.appendChild(actions);
+      overlay.appendChild(dialog);
+      document.body.appendChild(overlay);
+    });
+  }
+
   function buildWrapper() {
     const wrapper = document.createElement("div");
     wrapper.id = WRAPPER_ID;
-    wrapper.className = "lop-remove-wrapper";
+    wrapper.className = "lop-remove-wrapper lop-floating";
 
     const btn = document.createElement("button");
     btn.id = BUTTON_ID;
     btn.type = "button";
     btn.className = "lop-remove-btn";
     btn.textContent = "Remove unnecessary tasks";
-    btn.addEventListener("click", run);
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      start();
+    });
 
     const status = document.createElement("span");
     status.id = STATUS_ID;
@@ -167,20 +245,7 @@
 
   function injectButton() {
     if (document.getElementById(BUTTON_ID)) return true;
-
-    const refreshBtn = Array.from(document.querySelectorAll("button")).find((b) =>
-      /refresh data/i.test(b.textContent || "")
-    );
-
-    const wrapper = buildWrapper();
-
-    if (refreshBtn && refreshBtn.parentElement) {
-      refreshBtn.parentElement.insertBefore(wrapper, refreshBtn);
-      return true;
-    }
-
-    wrapper.classList.add("lop-floating");
-    document.body.appendChild(wrapper);
+    document.body.appendChild(buildWrapper());
     return true;
   }
 
@@ -191,8 +256,14 @@
     return injectButton();
   }
 
+  let scheduled = false;
   const observer = new MutationObserver(() => {
-    tryInject();
+    if (scheduled) return;
+    scheduled = true;
+    requestAnimationFrame(() => {
+      scheduled = false;
+      tryInject();
+    });
   });
   observer.observe(document.documentElement, { childList: true, subtree: true });
   tryInject();
