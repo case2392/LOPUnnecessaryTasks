@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "LOP Unnecessary Tasks Remover",
+  "version": "0.1.0",
+  "description": "Adds a button to the LOP home page that bulk-completes unnecessary Salesforce tasks.",
+  "content_scripts": [
+    {
+      "matches": [
+        "https://zillowhomeloans.lightning.force.com/lightning/page/home",
+        "https://zillowhomeloans.lightning.force.com/lightning/page/home?*",
+        "https://zillowhomeloans.lightning.force.com/lightning/page/home#*"
+      ],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+.lop-remove-wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 8px;
+}
+
+.lop-remove-wrapper.lop-floating {
+  position: fixed;
+  top: 80px;
+  right: 16px;
+  z-index: 9999;
+  background: #ffffff;
+  padding: 8px 12px;
+  border: 1px solid #c9c9c9;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.lop-remove-btn {
+  background: #c23934;
+  color: #ffffff;
+  border: 1px solid #c23934;
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  line-height: 1.2;
+}
+
+.lop-remove-btn:hover:not(:disabled) {
+  background: #a4302c;
+  border-color: #a4302c;
+}
+
+.lop-remove-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.lop-remove-status {
+  font-size: 12px;
+  color: #444444;
+  white-space: nowrap;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
