@@ -1,5 +1,6 @@
 (() => {
   const BUTTON_ID = "lop-remove-unnecessary-tasks-btn";
+  const STOP_ID = "lop-remove-stop-btn";
   const STATUS_ID = "lop-remove-status";
   const WRAPPER_ID = "lop-remove-wrapper";
   const MODAL_ID = "lop-remove-modal";
@@ -13,11 +14,17 @@
     "Call now - Beth's contact status",
   ];
 
+  const CLOSE_TASK_NOTE = "Task Completed. Ready to Close Task.";
+
+  let isRunning = false;
+  let abortRequested = false;
+
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   async function waitFor(predicate, { timeout = 8000, interval = 100 } = {}) {
     const start = Date.now();
     while (Date.now() - start < timeout) {
+      if (abortRequested) return null;
       const v = predicate();
       if (v) return v;
       await sleep(interval);
@@ -75,6 +82,59 @@
     return null;
   }
 
+  function findCloseTaskModal() {
+    for (const m of document.querySelectorAll("lightning-modal")) {
+      const title = m.querySelector(".slds-modal__title");
+      if (title && title.textContent.trim() === "Close Task") return m;
+    }
+    return null;
+  }
+
+  function findModalButtonByLabel(modal, label) {
+    for (const b of modal.querySelectorAll("button")) {
+      if (b.textContent.trim() === label) return b;
+    }
+    return null;
+  }
+
+  async function handleCloseTaskModal() {
+    const modal = await waitFor(findCloseTaskModal, {
+      timeout: 4000,
+      interval: 150,
+    });
+    if (!modal) return true;
+
+    const textarea = modal.querySelector("textarea");
+    if (textarea) {
+      textarea.focus();
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype,
+        "value"
+      ).set;
+      setter.call(textarea, CLOSE_TASK_NOTE);
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      textarea.dispatchEvent(new Event("change", { bubbles: true }));
+      await sleep(200);
+
+      const finishBtn = findModalButtonByLabel(modal, "Finish");
+      if (!finishBtn) {
+        console.warn("[LOP] Close Task modal: no Finish button");
+        return false;
+      }
+      finishBtn.click();
+    } else {
+      const confirmBtn = findModalButtonByLabel(modal, "Confirm");
+      if (!confirmBtn) {
+        console.warn("[LOP] Close Task modal: no Confirm button");
+        return false;
+      }
+      confirmBtn.click();
+    }
+
+    await waitFor(() => !findCloseTaskModal(), { timeout: 10000 });
+    return true;
+  }
+
   async function completeTask({ taskId, name }) {
     setStatus(`Completing: ${name}`);
 
@@ -101,6 +161,12 @@
 
     completeBtn.click();
 
+    const modalHandled = await handleCloseTaskModal();
+    if (!modalHandled) {
+      console.warn("[LOP] Close Task modal could not be handled", { taskId, name });
+      return false;
+    }
+
     const cleared = await waitFor(
       () => {
         const row = findRowByTaskId(taskId);
@@ -116,6 +182,8 @@
   }
 
   async function start() {
+    if (isRunning) return;
+
     const tasks = getMatchingTasks();
     if (tasks.length === 0) {
       setStatus("No unnecessary tasks found.");
@@ -128,12 +196,14 @@
       return;
     }
 
-    const btn = document.getElementById(BUTTON_ID);
-    if (btn) btn.disabled = true;
+    isRunning = true;
+    abortRequested = false;
+    setRunningState(true);
 
     let done = 0;
     let failed = 0;
     for (const task of tasks) {
+      if (abortRequested) break;
       try {
         const success = await completeTask(task);
         if (success) done++;
@@ -144,8 +214,24 @@
       }
     }
 
-    if (btn) btn.disabled = false;
-    setStatus(`Done. Completed ${done}, failed ${failed}.`);
+    const tail = abortRequested ? "Stopped." : "Done.";
+    setStatus(`${tail} Completed ${done}, failed ${failed}.`);
+    isRunning = false;
+    abortRequested = false;
+    setRunningState(false);
+  }
+
+  function stop() {
+    if (!isRunning) return;
+    abortRequested = true;
+    setStatus("Stopping after current task...");
+  }
+
+  function setRunningState(running) {
+    const main = document.getElementById(BUTTON_ID);
+    const stopBtn = document.getElementById(STOP_ID);
+    if (main) main.disabled = running;
+    if (stopBtn) stopBtn.style.display = running ? "" : "none";
   }
 
   function setStatus(text) {
@@ -221,7 +307,11 @@
   function buildWrapper() {
     const wrapper = document.createElement("div");
     wrapper.id = WRAPPER_ID;
-    wrapper.className = "lop-remove-wrapper lop-floating";
+    wrapper.className = "lop-remove-wrapper";
+
+    const swallow = (e) => e.stopPropagation();
+    wrapper.addEventListener("click", swallow);
+    wrapper.addEventListener("mousedown", swallow);
 
     const btn = document.createElement("button");
     btn.id = BUTTON_ID;
@@ -234,18 +324,58 @@
       start();
     });
 
+    const stopBtn = document.createElement("button");
+    stopBtn.id = STOP_ID;
+    stopBtn.type = "button";
+    stopBtn.className = "lop-stop-btn";
+    stopBtn.textContent = "Stop";
+    stopBtn.style.display = "none";
+    stopBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      stop();
+    });
+
     const status = document.createElement("span");
     status.id = STATUS_ID;
     status.className = "lop-remove-status";
 
     wrapper.appendChild(btn);
+    wrapper.appendChild(stopBtn);
     wrapper.appendChild(status);
     return wrapper;
   }
 
+  function findRefreshDataButton() {
+    for (const b of document.querySelectorAll("button")) {
+      if ((b.textContent || "").trim() === "Refresh Data") return b;
+    }
+    return null;
+  }
+
   function injectButton() {
-    if (document.getElementById(BUTTON_ID)) return true;
-    document.body.appendChild(buildWrapper());
+    const existing = document.getElementById(WRAPPER_ID);
+    const refreshBtn = findRefreshDataButton();
+
+    if (existing) {
+      if (
+        refreshBtn &&
+        refreshBtn.parentElement &&
+        existing.parentElement !== refreshBtn.parentElement
+      ) {
+        refreshBtn.parentElement.insertBefore(existing, refreshBtn);
+      }
+      return true;
+    }
+
+    const wrapper = buildWrapper();
+    if (refreshBtn && refreshBtn.parentElement) {
+      refreshBtn.parentElement.insertBefore(wrapper, refreshBtn);
+    } else {
+      wrapper.classList.add("lop-floating");
+      document.body.appendChild(wrapper);
+    }
+    setRunningState(isRunning);
     return true;
   }
 

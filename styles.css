@@ -2,6 +2,8 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  margin-right: 8px;
+  font-family: "Salesforce Sans", Arial, sans-serif;
 }
 
 .lop-remove-wrapper.lop-floating {
@@ -14,7 +16,6 @@
   border: 1px solid #c9c9c9;
   border-radius: 6px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
-  font-family: "Salesforce Sans", Arial, sans-serif;
 }
 
 .lop-remove-btn {
@@ -38,6 +39,23 @@
 .lop-remove-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.lop-stop-btn {
+  background: #ffffff;
+  color: #c23934;
+  border: 1px solid #c23934;
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  line-height: 1.2;
+}
+
+.lop-stop-btn:hover {
+  background: #fde7e7;
 }
 
 .lop-remove-status {
